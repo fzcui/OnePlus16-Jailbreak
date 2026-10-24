@@ -42,8 +42,8 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;37.0.0" || \
-          sdkmanager "platform-tools" "platforms;android-37"
+          sdkmanager --channel=3 --install "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
+          ln -sf "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37" || true
 
       - name: Install deps
         run: |
