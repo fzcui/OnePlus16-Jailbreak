@@ -1,20 +1,7 @@
 name: Upgrade BakaSU
 
 on:
-  workflow_dispatch:
-    inputs:
-      bakasu_run_id:
-        description: "BakaSU Actions run ID (e.g. 40052601035)"
-        required: false
-        type: string
-      bakasu_commit:
-        description: "BakaSU commit SHA"
-        required: false
-        type: string
-      bakasu_build_no:
-        description: "BakaSU build number (e.g. 35438)"
-        required: false
-        type: string
+  workflow_dispatch: {}  # 纯手动触发，不再需要填任何 ID 了
 
 permissions:
   contents: read
@@ -50,40 +37,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq unzip
 
-      - name: Resolve BakaSU run and commit
+      - name: Resolve BakaSU latest run and commit
         env:
           GH_TOKEN: ${{ secrets.BAKASU_GH_TOKEN }}
-          INPUT_RUN_ID: ${{ inputs.bakasu_run_id }}
-          INPUT_COMMIT: ${{ inputs.bakasu_commit }}
-          INPUT_BUILD_NO: ${{ inputs.bakasu_build_no }}
         run: |
           set -euo pipefail
           REPO="Baka-SU/BakaSU"
-          RUN_ID="${INPUT_RUN_ID:-}"
-          COMMIT="${INPUT_COMMIT:-}"
-
-          if [[ -z "$RUN_ID" && -n "$INPUT_BUILD_NO" ]]; then
-            echo "Searching for run number #$INPUT_BUILD_NO ..."
-            RUN_ID="$(gh run list -R "$REPO" --limit 1000 \
-              --json databaseId,number,headSha,createdAt \
-              | jq -r --arg n "$INPUT_BUILD_NO" '
-                [.[] | select((.number|tostring)==$n)]
-                | sort_by(.createdAt) | reverse | .[0].databaseId // empty
-              ')"
-          fi
-
+          echo "Fetching latest successful run from BakaSU..."
+          # 自动获取最近 20 次里，第一次成功的 run ID
+          RUN_ID="$(gh run list -R "$REPO" -L 20 --json databaseId,conclusion --jq '[.[] | select(.conclusion=="success")][0].databaseId')"
+          
           if [[ -z "$RUN_ID" ]]; then
-            echo "::error::Run not found. Please provide bakasu_run_id or bakasu_commit."
+            echo "::error::Could not find a successful run."
             exit 1
           fi
 
-          if [[ -z "$COMMIT" ]]; then
-            COMMIT="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .head_sha)"
-          fi
-
+          # 获取该 run 对应的 commit SHA
+          COMMIT="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .head_sha)"
+          
           echo "BAKASU_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "BAKASU_COMMIT=$COMMIT" >> "$GITHUB_ENV"
-          echo "BakaSU run=$RUN_ID commit=$COMMIT"
+          echo "Found BakaSU run=$RUN_ID commit=$COMMIT"
 
       - name: Download BakaSU CI artifacts
         env:
