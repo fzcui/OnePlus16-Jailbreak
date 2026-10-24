@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       bakasu_run_id:
-        description: "BakaSU Actions run ID（优先，例如 40052601035）"
+        description: "BakaSU Actions run ID (e.g. 40052601035)"
         required: false
         type: string
       bakasu_commit:
-        description: "BakaSU commit SHA（不填则从 run 取）"
+        description: "BakaSU commit SHA"
         required: false
         type: string
       bakasu_build_no:
-        description: "BakaSU 构建号（例如 35438；run_id 为空时尝试按 run number 查找）"
+        description: "BakaSU build number (e.g. 35438)"
         required: false
         type: string
 
@@ -37,8 +37,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
-        packages: 'platform-tools'
-        
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
@@ -64,7 +63,7 @@ jobs:
           COMMIT="${INPUT_COMMIT:-}"
 
           if [[ -z "$RUN_ID" && -n "$INPUT_BUILD_NO" ]]; then
-            echo "按 run number 查找 #$INPUT_BUILD_NO ..."
+            echo "Searching for run number #$INPUT_BUILD_NO ..."
             RUN_ID="$(gh run list -R "$REPO" --limit 1000 \
               --json databaseId,number,headSha,createdAt \
               | jq -r --arg n "$INPUT_BUILD_NO" '
@@ -74,7 +73,7 @@ jobs:
           fi
 
           if [[ -z "$RUN_ID" ]]; then
-            echo "::error::未找到 BakaSU run。请填写 bakasu_run_id，或从 Actions 页面复制 run ID/commit SHA。"
+            echo "::error::Run not found. Please provide bakasu_run_id or bakasu_commit."
             exit 1
           fi
 
@@ -119,8 +118,8 @@ jobs:
 
           APK="$(find .work/bakasu/manager -type f -name '*.apk' | head -n1)"
           KSUD="$(find .work/bakasu/ksud -type f \( -name 'ksud' -o -name 'ksud-*' \) | head -n1)"
-          [[ -n "$APK" && -f "$APK" ]] || { echo "::error::未找到 Manager APK"; exit 1; }
-          [[ -n "$KSUD" && -f "$KSUD" ]] || { echo "::error::未找到 ksud arm64"; exit 1; }
+          [[ -n "$APK" && -f "$APK" ]] || { echo "::error::Manager APK not found"; exit 1; }
+          [[ -n "$KSUD" && -f "$KSUD" ]] || { echo "::error::ksud arm64 not found"; exit 1; }
 
           install -m 0644 "$APK" "$ASSETS/Manager-release.apk"
           install -m 0755 "$KSUD" "$ASSETS/ksud"
@@ -151,7 +150,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
-            echo "::error::缺少 ANDROID_KEYSTORE_BASE64 secret"
+            echo "::error::Missing ANDROID_KEYSTORE_BASE64 secret"
             exit 1
           fi
           mkdir -p app/keystore
@@ -163,7 +162,6 @@ jobs:
           keyPassword=${KEY_PASSWORD}
           EOF
           echo "sdk.dir=$ANDROID_HOME" > app/local.properties
-          # 如果 build.gradle.kts 的字段名不同，按仓库实际字段调整这里
 
       - name: Build release APK
         run: |
