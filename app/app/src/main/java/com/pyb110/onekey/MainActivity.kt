@@ -6,12 +6,20 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +65,7 @@ import rikka.shizuku.Shizuku
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -67,7 +77,9 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 class MainActivity : ComponentActivity() {
@@ -77,13 +89,14 @@ class MainActivity : ComponentActivity() {
     private var authorized by mutableStateOf(false)
     private var binderReady by mutableStateOf(false)
     private var ksuActive by mutableStateOf(false)
+    private var exploit by mutableStateOf(ExploitKind.CVE64560)
     private var manager by mutableStateOf(ManagerKind.KERNELSU)
-    private var managerVersion by mutableStateOf("未安装")
     private var kernelVersion by mutableStateOf("未知")
     private var deviceModel by mutableStateOf("未知")
     private var selinuxText by mutableStateOf("未知")
     private var antiRootGuard by mutableStateOf(true)
     private var softRebootAfter by mutableStateOf(false)
+    private var unloadGuard by mutableStateOf(false)
     private var showLogs by mutableStateOf(false)
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, result ->
@@ -100,7 +113,17 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
+        window.isNavigationBarContrastEnforced = false
         super.onCreate(savedInstanceState)
         Shizuku.addRequestPermissionResultListener(permissionListener)
         Shizuku.addBinderReceivedListenerSticky(binderListener)
@@ -108,21 +131,25 @@ class MainActivity : ComponentActivity() {
         refreshAuth()
         antiRootGuard = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("antiroot_guard", true)
         softRebootAfter = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("soft_reboot_after", false)
+        unloadGuard = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("unload_guard", false)
+        val savedExploit = getSharedPreferences("pyb110", MODE_PRIVATE).getString("exploit", null)
+        exploit = runCatching { ExploitKind.valueOf(savedExploit ?: "") }.getOrDefault(ExploitKind.CVE64560)
         val savedManager = getSharedPreferences("pyb110", MODE_PRIVATE).getString("manager", null)
         manager = runCatching { ManagerKind.valueOf(savedManager ?: "") }.getOrDefault(ManagerKind.KERNELSU)
-        managerVersion = readManagerVersion(manager)
         kernelVersion = runCatching { android.system.Os.uname().release }.getOrDefault("未知")
         deviceModel = resolveDeviceName()
         refreshStaticStateAsync()
         refreshKsuAsync()
 
         setContent {
-            MiuixTheme {
+            val themeController = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
+            MiuixTheme(themeController) {
                 if (showLogs) {
                     LogScreen(state = logs.toList(), onBack = { showLogs = false })
                 } else {
                     val scrollBehavior = MiuixScrollBehavior()
                     Scaffold(
+                        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top),
                         topBar = {
                             TopAppBar(
                                 title = "OnePlus 16 Jailbreak",
@@ -176,27 +203,81 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             item {
-                                ManagerVersionRow(
-                                    manager = manager,
-                                    version = managerVersion,
-                                    onSelect = { selectManager(it) }
-                                )
-                            }
-                            item {
-                                ToggleSwitchRow(
-                                    title = "越狱后禁用安全弹窗",
-                                    icon = Icons.Filled.Security,
-                                    checked = antiRootGuard,
-                                    onCheckedChange = { updateAntiRootGuard(it) }
-                                )
-                            }
-                            item {
-                                ToggleSwitchRow(
-                                    title = "越狱后软重启",
-                                    icon = Icons.Filled.RestartAlt,
-                                    checked = softRebootAfter,
-                                    onCheckedChange = { updateSoftRebootAfter(it) }
-                                )
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column {
+                                        WindowDropdownPreference(
+                                            title = "ROOT管理器",
+                                            items = ManagerKind.entries.map { it.fullLabel },
+                                            selectedIndex = manager.ordinal,
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Tag,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            },
+                                            onSelectedIndexChange = { selectManager(ManagerKind.entries[it]) }
+                                        )
+                                        HorizontalDivider()
+                                        WindowDropdownPreference(
+                                            title = "漏洞利用方式",
+                                            items = ExploitKind.entries.map { it.fullLabel },
+                                            selectedIndex = exploit.ordinal,
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Security,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            },
+                                            onSelectedIndexChange = { selectExploit(ExploitKind.entries[it]) }
+                                        )
+                                        HorizontalDivider()
+                                        SwitchPreference(
+                                            title = "越狱后禁用安全弹窗",
+                                            checked = antiRootGuard,
+                                            onCheckedChange = { updateAntiRootGuard(it) },
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Security,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            }
+                                        )
+                                        HorizontalDivider()
+                                        SwitchPreference(
+                                            title = "越狱后软重启",
+                                            checked = softRebootAfter,
+                                            onCheckedChange = { updateSoftRebootAfter(it) },
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.RestartAlt,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            }
+                                        )
+                                        HorizontalDivider()
+                                        SwitchPreference(
+                                            title = "越狱后卸载内核安全防护",
+                                            checked = unloadGuard,
+                                            onCheckedChange = { updateUnloadGuard(it) },
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Security,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
                             }
                             item {
                                 InfoCard(
@@ -262,65 +343,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
-
-    @Composable
-    private fun ManagerVersionRow(
-        manager: ManagerKind,
-        version: String,
-        onSelect: (ManagerKind) -> Unit
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                WindowDropdownPreference(
-                    title = "管理器版本",
-                    summary = version,
-                    items = ManagerKind.entries.map { it.fullLabel },
-                    selectedIndex = manager.ordinal,
-                    startAction = {
-                        Icon(
-                            imageVector = Icons.Filled.Tag,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 6.dp),
-                            tint = MiuixTheme.colorScheme.onBackground
-                        )
-                    },
-                    onSelectedIndexChange = { index ->
-                        onSelect(ManagerKind.entries[index])
-                    }
-                )
-            }
-            Text(
-                text = "切换管理器后需重启再越狱（不要热重载已加载模块）",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(start = 4.dp)
-            )
-        }
-    }
-
-    @Composable
-    private fun ToggleSwitchRow(
-        title: String,
-        icon: ImageVector,
-        checked: Boolean,
-        onCheckedChange: (Boolean) -> Unit
-    ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            SwitchPreference(
-                title = title,
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                startAction = {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 6.dp),
-                        tint = MiuixTheme.colorScheme.onBackground
-                    )
-                }
-            )
         }
     }
 
@@ -474,19 +496,22 @@ class MainActivity : ComponentActivity() {
         addLog("越狱后软重启: ${if (value) "开启" else "关闭"}")
     }
 
+    private fun updateUnloadGuard(value: Boolean) {
+        unloadGuard = value
+        getSharedPreferences("pyb110", MODE_PRIVATE).edit().putBoolean("unload_guard", value).apply()
+        addLog("越狱后卸载内核安全防护: ${if (value) "开启" else "关闭"}")
+    }
+
+    private fun selectExploit(kind: ExploitKind) {
+        exploit = kind
+        getSharedPreferences("pyb110", MODE_PRIVATE).edit().putString("exploit", kind.name).apply()
+        addLog("已选择漏洞利用: ${kind.fullLabel}")
+    }
+
     private fun selectManager(kind: ManagerKind) {
         manager = kind
         getSharedPreferences("pyb110", MODE_PRIVATE).edit().putString("manager", kind.name).apply()
-        managerVersion = readManagerVersion(kind)
-        addLog("已选择管理器: ${kind.fullLabel} ($managerVersion)")
-    }
-
-    private fun readManagerVersion(kind: ManagerKind): String = try {
-        val info = packageManager.getPackageInfo(kind.pkg, 0)
-        val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
-        "${info.versionName} ($code)"
-    } catch (t: Throwable) {
-        "未安装"
+        addLog("已选择 ROOT 管理器: ${kind.fullLabel}")
     }
 
     private fun resolveDeviceName(): String {
@@ -576,13 +601,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val dir = deployDir(service)
                 addLog("部署工具到 $dir …")
-                val release = runCatching { android.system.Os.uname().release }.getOrDefault("")
-                val base = getSharedPreferences("pyb110", MODE_PRIVATE).getString("update_base", null)
-                    ?: RemoteAssets.DEFAULT_BASE
-                val remote = RemoteAssets(this@MainActivity, ::addLog).resolve(base, manager.manager, release)
-                stageAssets(service, dir, remote)
-                addLog("开始执行 run.sh")
-                val rc = runStreaming(service, arrayOf("sh", "$dir/run.sh"), dir)
+                stageAssets(service, dir, deployPlan())
+                addLog("开始执行 ${exploit.script}")
+                val rc = runStreaming(service, arrayOf("sh", "$dir/${exploit.script}"), dir)
                 addLog("run.sh 退出码=$rc")
                 val (active, se) = readDeviceState(service)
                 withContext(Dispatchers.Main) {
@@ -608,6 +629,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun deployPlan(): List<Pair<String, String>> {
+        val common = when (exploit) {
+            ExploitKind.CVE64560 -> listOf(
+                "prep_solve", "prep_patch", "t64560_v36", "t64560_loader2", "t64560_w2", "forker", "run.sh"
+            )
+            ExploitKind.CVE98260 -> listOf(
+                "brm_plant", "pc98260_su", "prep_solve", "prep_patch", "forker", "run98260.sh"
+            )
+        }
+        val (ko, ksud) = when (manager) {
+            ManagerKind.KERNELSU -> "ksu-base.ko" to "ksud_official"
+            ManagerKind.NEXT -> "ksu-base-next.ko" to "ksud_next"
+            ManagerKind.BAKASU -> "ksu-base-bakasu.ko" to "ksud_bakasu"
+            ManagerKind.SUKISU -> "ksu-base-sukisu.ko" to "ksud_sukisu"
+        }
+        return common.map { it to it } + listOf(
+            "syms.txt" to "syms.txt",
+            "take_slide.sh" to "take_slide.sh",
+            ko to "ksu-base.ko",
+            ksud to "ksud_official"
+        )
+    }
+
     private fun deployDir(service: IShizukuService): String {
         val id = try {
             val p = service.newProcess(
@@ -625,10 +669,11 @@ class MainActivity : ComponentActivity() {
         return "/data/local/tmp/pyb110-$tag-${System.currentTimeMillis() / 1000}"
     }
 
-    private fun stageAssets(service: IShizukuService, dir: String, remote: List<Pair<String, File>>) {
+    private fun stageAssets(service: IShizukuService, dir: String, files: List<Pair<String, String>>) {
+        val stale = "killall -9 t64560_loader2 t64560_w2 t64560_v36 brm_plant 2>/dev/null"
         runCatching {
             service.newProcess(
-                arrayOf("su", "-c", "killall -9 t64560_loader2 t64560_w2 t64560_v36 2>/dev/null"),
+                arrayOf("sh", "-c", stale),
                 shizukuEnv(), "/data/local/tmp"
             ).waitFor()
         }
@@ -641,51 +686,34 @@ class MainActivity : ComponentActivity() {
             throw java.io.IOException("deploy dir not writable: $dir")
         }
 
-        for (name in BUILTIN_ASSETS) {
+        for ((assetName, target) in files) {
             val p = service.newProcess(
-                arrayOf("sh", "-c", "cat > '$dir/$name'"),
+                arrayOf("sh", "-c", "cat > '$dir/$target'"),
                 shizukuEnv(), "/data/local/tmp"
             )
             var copied = 0L
             try {
                 ParcelFileDescriptor.AutoCloseOutputStream(p.getOutputStream()).use { out ->
-                    assets.open("pyb110/$name").use { copied = it.copyTo(out) }
+                    assets.open("pyb110/$assetName").use { copied = it.copyTo(out) }
                 }
             } catch (t: java.io.IOException) {
-                addLog("写入 $name 失败（目录/文件权限？）: ${t.message}")
+                addLog("写入 $target 失败（目录/文件权限？）: ${t.message}")
                 throw t
             }
             val rc = p.waitFor()
-            if (rc != 0) addLog("部署失败 $name rc=$rc") else addLog("已部署 $name (${copied} B)")
+            if (rc != 0) addLog("部署失败 $target rc=$rc") else addLog("已部署 $target (${copied} B)")
         }
 
-        for ((name, file) in remote) {
-            val p = service.newProcess(
-                arrayOf("sh", "-c", "cat > '$dir/$name'"),
-                shizukuEnv(), "/data/local/tmp"
-            )
-            var copied = 0L
-            try {
-                ParcelFileDescriptor.AutoCloseOutputStream(p.getOutputStream()).use { out ->
-                    file.inputStream().use { copied = it.copyTo(out) }
-                }
-            } catch (t: java.io.IOException) {
-                addLog("写入 $name 失败（目录/文件权限？）: ${t.message}")
-                throw t
-            }
-            val rc = p.waitFor()
-            if (rc != 0) addLog("部署失败 $name rc=$rc") else addLog("已部署 $name (${copied} B)")
-        }
-
-        val names = BUILTIN_ASSETS + remote.map { it.first }
         service.newProcess(
-            arrayOf("sh", "-c", "chmod 755 " + names.joinToString(" ") { "'$dir/$it'" }),
+            arrayOf("sh", "-c", "chmod 755 " + files.joinToString(" ") { "'$dir/${it.second}'" }),
             shizukuEnv(), "/data/local/tmp"
         ).waitFor()
     }
 
     private fun runStreaming(service: IShizukuService, cmd: Array<String>, dir: String): Int {
         val env = shizukuEnv() + "PYB110_DIR=$dir" + "PYB110_MANAGER=${manager.manager}" +
+            "PYB110_LATE_LOAD=1" +
+            "PYB110_UNLOAD_GUARD=${if (unloadGuard) "1" else "0"}" +
             "PYB110_DISABLE_ANTIROOT=${if (antiRootGuard) "1" else "0"}"
         val p = service.newProcess(cmd, env, dir)
         val out = ParcelFileDescriptor.AutoCloseInputStream(p.getInputStream())
@@ -718,6 +746,11 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private enum class ExploitKind(val fullLabel: String, val script: String) {
+        CVE64560("CVE-2026-64560", "run.sh"),
+        CVE98260("CVE-2026-98260", "run98260.sh")
+    }
+
     private enum class ManagerKind(val fullLabel: String, val pkg: String, val manager: String) {
         KERNELSU("KernelSU", "me.weishu.kernelsu", "kernelsu"),
         NEXT("KernelSU Next", "com.rifsxd.ksunext", "next"),
@@ -727,8 +760,5 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val REQ_SHIZUKU = 1001
-        private val BUILTIN_ASSETS = listOf(
-            "prep_solve", "prep_patch", "t64560_v36", "t64560_loader2", "t64560_w2", "forker"
-        )
     }
 }

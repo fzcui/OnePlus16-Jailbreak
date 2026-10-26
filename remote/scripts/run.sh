@@ -12,7 +12,32 @@ case "$MANAGER" in
   sukisu) BASE=ksu-base-sukisu.ko; KSUD=ksud_sukisu; MPKG=com.sukisu.ultra ;;
   *) MANAGER=kernelsu; BASE=ksu-base.ko; KSUD=ksud_official; MPKG=me.weishu.kernelsu ;;
 esac
-echo "MANAGER=$MANAGER"
+MPKG=${PYB110_MANAGER_PKG:-$MPKG}
+echo "MANAGER=$MANAGER VERSION=${PYB110_MANAGER_VERSION:-unknown}"
+
+
+unload_guard() {
+  if [ "${PYB110_UNLOAD_GUARD:-0}" = "1" ]; then
+    echo "UNLOAD_GUARD: rmmod oplus_secure_guard_new"
+    su -c "rmmod oplus_secure_guard_new" 2>&1
+    echo "UNLOAD_GUARD_RC=$?"
+    if grep -qi oplus_secure_guard /proc/modules 2>/dev/null; then
+      echo "UNLOAD_GUARD_STILL_LOADED"
+    else
+      echo "UNLOAD_GUARD_GONE"
+    fi
+  else
+    echo "UNLOAD_GUARD_SKIP"
+  fi
+}
+
+install_manager_apk() {
+  APK=${PYB110_MANAGER_APK:-}
+  if [ -n "$APK" ] && [ -f "$D/$APK" ]; then
+    su -c "pm install -r '$D/$APK'" 2>&1
+    echo "APK_INSTALL_RC=$?"
+  fi
+}
 
 if grep -qi kernelsu /proc/modules 2>/dev/null; then
   echo "ALREADY_LOADED: kernelsu present, skip exploit/load"
@@ -28,8 +53,10 @@ if grep -qi kernelsu /proc/modules 2>/dev/null; then
   else
     echo "ANTIROOT_SKIP: 开关关闭，未禁用安全组件"
   fi
+  unload_guard
   su -c "/data/local/tmp/ksud_official install" 2>&1
   echo "KSUD_INSTALL_RC=$?"
+  install_manager_apk
   su -c "chmod 644 /data/system/packages.list 2>/dev/null; mv /data/system/packages.list /data/system/packages.list.k 2>/dev/null && mv /data/system/packages.list.k /data/system/packages.list 2>/dev/null; sleep 2" 2>&1
   am force-stop "$MPKG" 2>/dev/null
   monkey -p "$MPKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
@@ -106,8 +133,10 @@ if [ "$DISABLE_ANTIROOT" = "1" ]; then
 else
   echo "ANTIROOT_SKIP: 开关关闭，未禁用安全组件"
 fi
+unload_guard
 su -c "/data/local/tmp/ksud_official install" 2>&1
 echo "KSUD_INSTALL_RC=$?"
+install_manager_apk
 sleep 10
 su -c "id; getenforce; grep -i kernelsu /proc/modules; /data/adb/ksud debug version; pm list packages -d | grep exsystemservice" 2>&1
 echo "SU_ID_RC=$?"
