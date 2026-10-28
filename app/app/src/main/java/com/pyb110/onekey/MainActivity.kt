@@ -32,8 +32,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Smartphone
@@ -97,6 +101,7 @@ class MainActivity : ComponentActivity() {
     private var antiRootGuard by mutableStateOf(true)
     private var softRebootAfter by mutableStateOf(false)
     private var unloadGuard by mutableStateOf(false)
+    private var susfsSupport by mutableStateOf(false)
     private var showLogs by mutableStateOf(false)
 
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, result ->
@@ -132,6 +137,7 @@ class MainActivity : ComponentActivity() {
         antiRootGuard = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("antiroot_guard", true)
         softRebootAfter = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("soft_reboot_after", false)
         unloadGuard = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("unload_guard", false)
+        susfsSupport = getSharedPreferences("pyb110", MODE_PRIVATE).getBoolean("susfs_support", false)
         val savedExploit = getSharedPreferences("pyb110", MODE_PRIVATE).getString("exploit", null)
         exploit = runCatching { ExploitKind.valueOf(savedExploit ?: "") }.getOrDefault(ExploitKind.CVE64560)
         val savedManager = getSharedPreferences("pyb110", MODE_PRIVATE).getString("manager", null)
@@ -226,7 +232,7 @@ class MainActivity : ComponentActivity() {
                                             selectedIndex = exploit.ordinal,
                                             startAction = {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Security,
+                                                    imageVector = Icons.Filled.BugReport,
                                                     contentDescription = null,
                                                     modifier = Modifier.padding(end = 6.dp),
                                                     tint = MiuixTheme.colorScheme.onBackground
@@ -241,7 +247,7 @@ class MainActivity : ComponentActivity() {
                                             onCheckedChange = { updateAntiRootGuard(it) },
                                             startAction = {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Security,
+                                                    imageVector = Icons.Filled.NotificationsOff,
                                                     contentDescription = null,
                                                     modifier = Modifier.padding(end = 6.dp),
                                                     tint = MiuixTheme.colorScheme.onBackground
@@ -269,7 +275,21 @@ class MainActivity : ComponentActivity() {
                                             onCheckedChange = { updateUnloadGuard(it) },
                                             startAction = {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Security,
+                                                    imageVector = Icons.Filled.RemoveModerator,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                    tint = MiuixTheme.colorScheme.onBackground
+                                                )
+                                            }
+                                        )
+                                        HorizontalDivider()
+                                        SwitchPreference(
+                                            title = "SUSFS 支持",
+                                            checked = susfsSupport,
+                                            onCheckedChange = { updateSusfsSupport(it) },
+                                            startAction = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Extension,
                                                     contentDescription = null,
                                                     modifier = Modifier.padding(end = 6.dp),
                                                     tint = MiuixTheme.colorScheme.onBackground
@@ -502,6 +522,12 @@ class MainActivity : ComponentActivity() {
         addLog("越狱后卸载内核安全防护: ${if (value) "开启" else "关闭"}")
     }
 
+    private fun updateSusfsSupport(value: Boolean) {
+        susfsSupport = value
+        getSharedPreferences("pyb110", MODE_PRIVATE).edit().putBoolean("susfs_support", value).apply()
+        addLog("SUSFS 支持: ${if (value) "开启（越狱成功后加载 ko）" else "关闭"}")
+    }
+
     private fun selectExploit(kind: ExploitKind) {
         exploit = kind
         getSharedPreferences("pyb110", MODE_PRIVATE).edit().putString("exploit", kind.name).apply()
@@ -644,12 +670,14 @@ class MainActivity : ComponentActivity() {
             ManagerKind.BAKASU -> "ksu-base-bakasu.ko" to "ksud_bakasu"
             ManagerKind.SUKISU -> "ksu-base-sukisu.ko" to "ksud_sukisu"
         }
-        return common.map { it to it } + listOf(
+        val extra = mutableListOf(
             "syms.txt" to "syms.txt",
             "take_slide.sh" to "take_slide.sh",
             ko to ko,
             ksud to ksud
         )
+        if (susfsSupport) extra.add("susfs_guard_lkm.ko" to "susfs_guard_lkm.ko")
+        return common.map { it to it } + extra
     }
 
     private fun deployDir(service: IShizukuService): String {
@@ -714,7 +742,8 @@ class MainActivity : ComponentActivity() {
         val env = shizukuEnv() + "PYB110_DIR=$dir" + "PYB110_MANAGER=${manager.manager}" +
             "PYB110_LATE_LOAD=1" +
             "PYB110_UNLOAD_GUARD=${if (unloadGuard) "1" else "0"}" +
-            "PYB110_DISABLE_ANTIROOT=${if (antiRootGuard) "1" else "0"}"
+            "PYB110_DISABLE_ANTIROOT=${if (antiRootGuard) "1" else "0"}" +
+            "PYB110_SUSFS=${if (susfsSupport) "1" else "0"}"
         val p = service.newProcess(cmd, env, dir)
         val out = ParcelFileDescriptor.AutoCloseInputStream(p.getInputStream())
         val err = ParcelFileDescriptor.AutoCloseInputStream(p.getErrorStream())

@@ -12,9 +12,9 @@
 - **KernelSU（官方 v3.3.1）**：真机跑通，模块 Live、`su` uid 0、管理器加冕、Enforcing 下可用。
 - **BakaSU（原 ReSukiSU）**：LKM/ksud/管理器对齐上游 `35252`（`v4.2.0-rc3`），真机加载成功；LKM 435,616 B。
 - **KernelSU Next**：LKM 350,000 B，已按同版本 GKI 编译并在 App 中可选，尚未做实机加载验证。
-- **SukiSU Ultra**：LKM/ksud 对齐 `v4.2.1-r2`（KSU 版本 41068），LKM 535,328 B；真机加载成功。
-- App 为单页设置：ROOT 管理器与漏洞利用方式各一个下拉，另有三个流程开关；release 签名 APK v1.12 已构建。
-- **全内置**：四个管理器的 ko/ksud、符号表、slide 与越狱脚本全部打包在 APK 内（`assets/pyb110` 约 48 MB，release APK 约 28 MB），运行时不联网；管理器 APK 由用户自行安装。
+- **SukiSU Ultra**：LKM/ksud 对齐 HEAD `080ba098`（版本 41097，`v4.2.1-r2-080ba098@main`），LKM 544,848 B、ksud 7,857,184 B；41068 真机加载成功，41097 为同 uapi 更新。
+- App 为单页设置：ROOT 管理器与漏洞利用方式各一个下拉，另有四个流程开关；release 签名 APK v1.12 已构建。
+- **全内置**：四个管理器的 ko/ksud、符号表、slide、越狱脚本与 SUSFS guard LKM 全部打包在 APK 内（`assets/pyb110` 约 51 MB，release APK 约 30 MB），运行时不联网；管理器 APK 由用户自行安装。
 
 ## 截图
 
@@ -37,7 +37,7 @@
 ┌────────────────────────────────┐
 │ App (Kotlin/Compose/Miuix)     │
 │  - ROOT 管理器 / 漏洞利用方式  │
-│  - 三个流程开关 / 日志页       │
+│  - 四个流程开关 / 日志页       │
 └───────────────┬────────────────┘
                 │ Shizuku (uid 2000)
                 ▼
@@ -113,11 +113,14 @@ OnePlus16-Jailbreak/
 │   ├── scripts/run.sh           64560 主流程
 │   ├── scripts/take_slide.sh    抓 slide
 │   └── syms-6.18.21.txt         该内核的符号表
-├── lkm/                         LKM 构建脚本
+├── lkm/                         LKM 构建脚本与 SUSFS 源码
 │   ├── build-kernelsu.sh        官方 KernelSU
 │   ├── build-next.sh            KernelSU Next
 │   ├── build-bakasu.sh          BakaSU（原 ReSukiSU）
 │   ├── build-sukisu.sh          SukiSU Ultra
+│   ├── build-susfs.sh           SUSFS guard LKM
+│   ├── susfs4ksu-lkm/           SUSFS LKM 源码（上游 28b2e85，GPL-2.0）
+│   ├── susfs-tools/             SUSFS 规则矩阵测试工具
 │   └── README.md
 ├── docs/screenshots/            App 与管理器截图
 ├── third_party/                 上游工具与许可（CVE 公开仓库）
@@ -176,9 +179,14 @@ bash lkm/build-bakasu.sh
 
 # SukiSU Ultra
 bash lkm/build-sukisu.sh
+
+# SUSFS guard LKM（实验，见 lkm/README.md）
+bash lkm/build-susfs.sh
 ```
 
 64560 的 `finit_module` 与 98260 的 `insmod` 回退都需要设备端按当次 boot 的 KASLR slide 用 `prep_patch` 重写符号；98260 默认先尝试 `ksud late-load`，失败再回退到打补丁后的 `insmod`。管理器与 ksud 建议直接用官方 release / CI 产物（BakaSU 的 `Manager-release` 与 `ksud`），不要在本地重复编译。
+
+`lkm/susfs4ksu-lkm` 是 vendored 的 SUSFS guard LKM 源码（上游 `28b2e85`，GPL-2.0）。为 PYB110 的 BTI 内核把 reboot supercall、hide_syms 以及 sus_map 的间接 show 入口都换成了 syscall / seq_operations wrapper（并适配上游新增的 `/proc/susfs_map` 规则节点）；`sus_map` 只对 KernelSU 会 umount 的 app 生效，`su` 授予 root 的进程不隐藏。规则矩阵与工具在 `lkm/susfs-tools/`。构建产物已内置到 App：开启「SUSFS 支持」开关后，越狱成功的流程末尾会自动把它部署到设备并 `ksud insmod`。
 
 ### 设备端工具
 
@@ -193,17 +201,18 @@ $CC -O2 -static -o prep_patch exploit/src/prep_patch.c
 $CC -O2 -static -o t64560_w2 exploit/src/t64560_w2.c
 ```
 
-`run.sh` / `run98260.sh` 从 `/data/local/tmp/pyb110-<boot_id>-<epoch>/` 运行，读取 `PYB110_MANAGER`（`kernelsu` / `next` / `bakasu` / `sukisu`）、`PYB110_DISABLE_ANTIROOT`（`1` / `0`）、`PYB110_UNLOAD_GUARD`（`1` / `0`）与 `PYB110_LATE_LOAD`（98260，默认 `1`）选择行为。
+`run.sh` / `run98260.sh` 从 `/data/local/tmp/pyb110-<boot_id>-<epoch>/` 运行，读取 `PYB110_MANAGER`（`kernelsu` / `next` / `bakasu` / `sukisu`）、`PYB110_DISABLE_ANTIROOT`（`1` / `0`）、`PYB110_UNLOAD_GUARD`（`1` / `0`）、`PYB110_SUSFS`（`1` / `0`）与 `PYB110_LATE_LOAD`（98260，默认 `1`）选择行为。
 
 ## 使用
 
 1. 用无线调试启动 Shizuku，并授权本 App。
 2. 在「ROOT管理器」下拉选择 KernelSU / KernelSU Next / BakaSU / SukiSU Ultra，在「漏洞利用方式」下拉选择 CVE-2026-64560 或 CVE-2026-98260。切换管理器后需重启再越狱（已加载模块不能热替换）。
 3. 98260 建议在干净开机后执行：`t98260_plant --probe` 会先核对内核 release 与 trace 通道；plant 命中通常 10–120 秒（预算 240 秒），期间可能概率性重启。
-4. 三个流程开关：
+4. 四个流程开关：
    - 「越狱后禁用安全弹窗」：拿到 su 后禁用 `com.oplus.exsystemservice` 并 kill 进程，5 秒后自动恢复；如截图等系统功能异常，软重启（重启 zygote/SystemUI）。
    - 「越狱后软重启」：流程跑完且模块确认加载后，以 `su` 执行 `setprop ctl.restart zygote`；失败不会影响已完成的越狱。
    - 「越狱后卸载内核安全防护」：拿到 su 后 `rmmod oplus_secure_guard_new`，日志给出 `UNLOAD_GUARD_GONE` 或 `UNLOAD_GUARD_STILL_LOADED`；模块被引用时不会强制卸载，重启后会重新加载。
+   - 「SUSFS 支持」：开启后越狱成功时自动把内置的 `susfs_guard_lkm.ko` 部署到设备，并以 `ksud insmod`（回退 `insmod`）加载；日志给出 `SUSFS_LOADED` / `SUSFS_LOAD_FAIL`，加载失败不影响已完成的越狱。默认关闭，关闭时该 ko 不会随流程部署。
 5. 点击「一键越狱」，等待日志出现 `DONE`。
 6. 越狱成功后用对应管理器授权 root。
 
@@ -234,10 +243,12 @@ $CC -O2 -static -o t64560_w2 exploit/src/t64560_w2.c
 - KernelSU Next：[rifsxd/KernelSU-Next](https://github.com/rifsxd/KernelSU-Next)（GPL-2.0）。
 - BakaSU（原 ReSukiSU）：[Baka-SU/BakaSU](https://github.com/Baka-SU/BakaSU)（GPL-2.0）。
 - SukiSU Ultra：[SukiSU-Ultra/SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)（GPL-3.0）。
+- SUSFS guard LKM：[inforcqb/susfs4ksu-lkm](https://github.com/inforcqb/susfs4ksu-lkm)（GPL-2.0；源码 vendored 在 `lkm/susfs4ksu-lkm`，BTI 兼容修改见 `MODIFICATIONS.md`）。
 - UI：[Miuix](https://github.com/miuix-kotlin-multiplatform/miuix)（Apache-2.0）；远程执行：[Shizuku API](https://github.com/RikkaApps/Shizuku-API)（Apache-2.0）。
 - 本项目自研代码（App、exploit 封装、构建脚本）采用 MIT，详见 `LICENSE`；第三方二进制与源码遵循各自许可，详见 `NOTICE`。
 
 ## 校验和
 
-- release APK：`app/app/build/outputs/apk/release/app-release.apk` / 29,171,944 B / md5 `26a9d28daf8651be59e2dc0e25aea1d7`（本地构建产物，不入库）。
-- KernelSU LKM（6.18.21）：349,224 B；Next：350,000 B；BakaSU：435,616 B；SukiSU：535,328 B（strip 后）。
+- release APK：`app/app/build/outputs/apk/release/app-release.apk` / 30,789,270 B / md5 `590cde014beaf91c82b3a0c1372119f3`（本地构建产物，不入库）。
+- KernelSU LKM（6.18.21）：349,224 B；Next：350,000 B；BakaSU：435,616 B；SukiSU：544,848 B（strip 后）。
+- SUSFS guard LKM（6.18.21，内置 assets）：3,456,440 B / sha256 `4c944d3f84b386bb03c0aadb4527c4ec74c12fe511c5511884073160c3a88304`（未 strip）。
