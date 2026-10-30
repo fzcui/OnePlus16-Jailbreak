@@ -7,6 +7,7 @@ chmod 755 prep_solve prep_patch t64560_v36 t64560_loader2 t64560_w2 forker ksu* 
 MANAGER=${PYB110_MANAGER:-kernelsu}
 DISABLE_ANTIROOT=${PYB110_DISABLE_ANTIROOT:-1}
 case "$MANAGER" in
+  finasu) BASE=ksu-base-finasu.ko; KSUD=ksud_finasu; MPKG=me.yuki.fina ;;
   next) BASE=ksu-base-next.ko; KSUD=ksud_next; MPKG=com.rifsxd.ksunext ;;
   bakasu) BASE=ksu-base-bakasu.ko; KSUD=ksud_bakasu; MPKG=com.resukisu.resukisu ;;
   sukisu) BASE=ksu-base-sukisu.ko; KSUD=ksud_sukisu; MPKG=com.sukisu.ultra ;;
@@ -15,6 +16,53 @@ esac
 MPKG=${PYB110_MANAGER_PKG:-$MPKG}
 echo "MANAGER=$MANAGER VERSION=${PYB110_MANAGER_VERSION:-unknown}"
 
+
+
+stop_riskdetect() {
+  if [ "$DISABLE_ANTIROOT" = "1" ]; then
+    su -c "stop riskdetect" 2>&1
+    echo "ANTIROOT_STOP_RC=$?"
+    echo "ANTIROOT_STATE=$(su -c 'getprop init.svc.riskdetect' 2>/dev/null | tr -d '\r')"
+  else
+    echo "ANTIROOT_SKIP: switch off; riskdetect not stopped"
+  fi
+}
+
+restore_screenshot_stack() {
+  echo "SCREENSHOT_STACK: checking ColorOS screenshot components"
+  if ! su -c true >/dev/null 2>&1; then
+    echo "SCREENSHOT_STACK_SKIP=no-su"
+    return 0
+  fi
+  DIS=$(su -c "pm list packages -d --user 0 2>/dev/null" 2>/dev/null | tr -d '\r')
+  for p in com.oplus.exsystemservice com.oplus.screenshot; do
+    if ! su -c "pm list packages '$p'" 2>/dev/null | grep -qx "package:$p"; then
+      echo "SCREENSHOT_STACK_ABSENT=$p"
+      continue
+    fi
+    if printf '%s\n' "$DIS" | grep -qx "package:$p"; then
+      su -c "pm enable --user 0 '$p'" 2>&1
+      echo "SCREENSHOT_STACK_ENABLED=$p rc=$?"
+    else
+      echo "SCREENSHOT_STACK_OK=$p"
+    fi
+  done
+}
+
+crown_dynamic_manager() {
+  if [ "$MANAGER" != "finasu" ]; then
+    return 0
+  fi
+  APKP=$(pm path me.yuki.fina 2>/dev/null | sed -n 's/^package://p' | head -n 1)
+  if [ -z "$APKP" ]; then
+    echo "DYNAMIC_MANAGER_NO_APK"
+    return 0
+  fi
+  su -c "/data/adb/ksud dynamic set-apk '$APKP'" 2>&1
+  echo "DYNAMIC_SET_APK_RC=$?"
+  su -c "/data/adb/ksud dynamic list" 2>&1
+  echo "DYNAMIC_LIST_RC=$?"
+}
 
 unload_guard() {
   if [ "${PYB110_UNLOAD_GUARD:-0}" = "1" ]; then
@@ -76,21 +124,13 @@ load_susfs() {
 if grep -qi kernelsu /proc/modules 2>/dev/null; then
   echo "ALREADY_LOADED: kernelsu present, skip exploit/load"
   cp -f "$KSUD" /data/local/tmp/ksud_official 2>/dev/null
-  if [ "$DISABLE_ANTIROOT" = "1" ]; then
-    su -c "pm disable-user --user 0 com.oplus.exsystemservice" 2>&1
-    echo "DISABLE_RC=$?"
-    su -c "pkill -9 -f com.oplus.exsystemservice" 2>&1
-    echo "KILL_RC=$?"
-    sleep 5
-    su -c "pm enable com.oplus.exsystemservice" 2>&1
-    echo "ANTIROOT_RESTORED: 已恢复 exsystemservice；如截图等系统功能异常，请软重启（重启 zygote/SystemUI）"
-  else
-    echo "ANTIROOT_SKIP: 开关关闭，未禁用安全组件"
-  fi
+  stop_riskdetect
   unload_guard
   su -c "/data/local/tmp/ksud_official install" 2>&1
   echo "KSUD_INSTALL_RC=$?"
   install_manager_apk
+  crown_dynamic_manager
+  restore_screenshot_stack
   su -c "chmod 644 /data/system/packages.list 2>/dev/null; mv /data/system/packages.list /data/system/packages.list.k 2>/dev/null && mv /data/system/packages.list.k /data/system/packages.list 2>/dev/null; sleep 2" 2>&1
   load_susfs
   am force-stop "$MPKG" 2>/dev/null
@@ -157,23 +197,15 @@ if ! grep -qi kernelsu /proc/modules 2>/dev/null; then echo "LOAD_FAIL"; exit 15
 echo "MODULE_LOADED"
 
 echo "[6/6] anti-root guard + install ksud ($MANAGER)"
-if [ "$DISABLE_ANTIROOT" = "1" ]; then
-  su -c "pm disable-user --user 0 com.oplus.exsystemservice" 2>&1
-  echo "DISABLE_RC=$?"
-  su -c "pkill -9 -f com.oplus.exsystemservice" 2>&1
-  echo "KILL_RC=$?"
-  sleep 5
-  su -c "pm enable com.oplus.exsystemservice" 2>&1
-  echo "ANTIROOT_RESTORED: 已恢复 exsystemservice；如截图等系统功能异常，请软重启（重启 zygote/SystemUI）"
-else
-  echo "ANTIROOT_SKIP: 开关关闭，未禁用安全组件"
-fi
+stop_riskdetect
 unload_guard
 su -c "/data/local/tmp/ksud_official install" 2>&1
 echo "KSUD_INSTALL_RC=$?"
 install_manager_apk
+crown_dynamic_manager
+restore_screenshot_stack
 sleep 10
-su -c "id; getenforce; grep -i kernelsu /proc/modules; /data/adb/ksud debug version; pm list packages -d | grep exsystemservice" 2>&1
+su -c "id; getenforce; grep -i kernelsu /proc/modules; /data/adb/ksud debug version; getprop init.svc.riskdetect" 2>&1
 echo "SU_ID_RC=$?"
 sleep 3
 echo "CROWN"

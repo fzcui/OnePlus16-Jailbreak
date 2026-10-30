@@ -1,6 +1,8 @@
-# OnePlus 16 Jailbreak
+# Shark
 
-在 **OnePlus 16（PYB110，SM8950，Android 17 / ColorOS，内核 `6.18.21-android17-5-gf957accaf563-ab15926176-4k`）** 上，通过 **CVE-2026-64560** 或 **CVE-2026-98260** 提权，并加载 **内核态 root（KernelSU / KernelSU Next / BakaSU / SukiSU Ultra）** 的一键工具与源码。
+OnePlus 16（PYB110）一键越狱工具。
+
+在 **OnePlus 16（PYB110，SM8950，Android 17 / ColorOS，内核 `6.18.21-android17-5-gf957accaf563-ab15926176-4k`）** 上，通过 **CVE-2026-64560** 或 **CVE-2026-98260** 提权，并加载 **内核态 root（KernelSU / FinaSU / KernelSU Next / BakaSU / SukiSU Ultra）** 的一键工具与源码。
 
 设备未解锁 BL，起手只有 adb shell（uid 2000）。工具通过 Shizuku 以 shell 身份驱动设备端 exploit，最终加载按本机 GKI 6.18.21 自编的 LKM：64560 分支走 `finit_module`，98260 分支走 `ksud late-load`（失败回退 `insmod`）。
 
@@ -9,12 +11,13 @@
 ## 当前状态
 
 - **双漏洞可选**：默认 `CVE-2026-64560`（逐字段零写 cred + `finit_module`）；`CVE-2026-98260` 使用本仓库的 `t98260_plant` 引擎（exec + POSIX 定时器 UAF、假 cred 指针写 + rootd），真机验证 uid 0、全量 CapEff、SELinux Permissive。98260 建议在干净开机后使用。
-- **KernelSU（官方 v3.3.1）**：真机跑通，模块 Live、`su` uid 0、管理器加冕、Enforcing 下可用。
-- **BakaSU（原 ReSukiSU）**：LKM/ksud/管理器对齐上游 `35252`（`v4.2.0-rc3`），真机加载成功；LKM 435,616 B。
-- **KernelSU Next**：LKM 350,000 B，已按同版本 GKI 编译并在 App 中可选，尚未做实机加载验证。
-- **SukiSU Ultra**：LKM/ksud 对齐 HEAD `080ba098`（版本 41097，`v4.2.1-r2-080ba098@main`），LKM 544,848 B、ksud 7,857,184 B；41068 真机加载成功，41097 为同 uapi 更新。
-- App 为单页设置：ROOT 管理器与漏洞利用方式各一个下拉，另有四个流程开关；release 签名 APK v1.12 已构建。
-- **全内置**：四个管理器的 ko/ksud、符号表、slide、越狱脚本与 SUSFS guard LKM 全部打包在 APK 内（`assets/pyb110` 约 51 MB，release APK 约 30 MB），运行时不联网；管理器 APK 由用户自行安装。
+- **KernelSU（官方 main，UAPI6）**：LKM 按 `main` `db6263d3`（`v3.3.1-27-gdb6263d3`，versionCode 32707）用本机 6.18.21 GKI 重编，382,232 B、229 个 UNDEF 全部能由 `syms.txt` 解析，真机验证通过；ksud 同版本（6,618,008 B，uapi 6）。管理器需用同版本的 `KernelSU_v3.3.1-27-gdb6263d3_32707-release.apk`（与旧版 32680 同签名，`adb install -r` 直接覆盖）；旧管理器的 supercall 仍可用，但没有 UAPI6 的模块 preinit 等新特性。注意 UAPI6 的 ksud 必须配 UAPI6 LKM（ksud 启动会校验），不能与旧 5 版 LKM 混用。
+- **BakaSU（原 ReSukiSU）**：LKM/ksud/管理器对齐上游 `35252`（`v4.2.0-rc3`），LKM 435,616 B；真机验证通过（35252-6）。
+- **FinaSU（v1.3.2 最新）**：按 `master` `9b32bde4` 重编 LKM 496,744 B（UNDEF 232 全命中）、ksud 7,561,328 B（uapi 6），管理器 v1.3.2（33090）；使用 `KSU_DYNAMIC_MANAGER` 动态签名（`ksud dynamic set-apk`）。
+- **KernelSU Next（dev 最新）**：按 `dev` `da0b3f37`（`v3.4.2-87-gda0b3f37`，管理器 versionCode 33442）重编 LKM 489,264 B、ksud 7,611,344 B（uapi 6）；已内置并在 App 中可选，真机验证通过（33442-6）。
+- **SukiSU Ultra（v4.3.0 最新）**：按 tag `v4.3.0`（HEAD `e67b14e6`）重编 LKM 545,040 B、ksud 7,858,624 B（uapi 6），管理器 41100；41068 与 4.3.0（41100-6）均真机验证通过。
+- App 为单页设置：ROOT 管理器与漏洞利用方式各一个下拉，另有四个流程开关；release 签名 APK v1.30 已构建（37,641,107 B，md5 `c3a00262f594a12aeebd220a69b554a0`）。
+- **全内置**：五个管理器的 ko/ksud、符号表、slide、越狱脚本与 SUSFS guard LKM 全部打包在 APK 内（`assets/pyb110` 约 61 MB，release APK 约 38 MB），运行时不联网；管理器 APK 由用户自行安装。
 
 ## 截图
 
@@ -26,8 +29,9 @@
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/kernelsu-manager.jpg" width="170" alt="KernelSU 管理器"><br><sub><b>4 · KernelSU 管理器</b></sub></td>
-    <td align="center"><img src="docs/screenshots/bakasu-manager.jpg" width="170" alt="BakaSU 管理器"><br><sub><b>5 · BakaSU 管理器</b></sub></td>
-    <td align="center"><img src="docs/screenshots/sukisu-manager.jpg" width="170" alt="SukiSU Ultra 管理器"><br><sub><b>6 · SukiSU Ultra 管理器</b></sub></td>
+    <td align="center"><img src="docs/screenshots/ksunext-manager.jpg" width="170" alt="KernelSU-Next 管理器"><br><sub><b>5 · KernelSU-Next 管理器</b></sub></td>
+    <td align="center"><img src="docs/screenshots/bakasu-manager.jpg" width="170" alt="BakaSU 管理器"><br><sub><b>6 · BakaSU 管理器</b></sub></td>
+    <td align="center"><img src="docs/screenshots/sukisu-manager.jpg" width="170" alt="SukiSU Ultra 管理器"><br><sub><b>7 · SukiSU Ultra 管理器</b></sub></td>
   </tr>
 </table>
 
@@ -49,19 +53,26 @@
 │   3 selinux_state-7 零写 → Permissive         │
 │   4 perf 泄漏 cred + 两阶段写                 │
 │   5 finit_module 加载 LKM                     │
-│   6 反 root 守卫 + ksud 安装                  │
+│   6 停 riskdetect + ksud 安装 + 加冕          │
+│   7 可选 SUSFS → 拉起管理器                   │
 │  98260：run98260.sh                           │
 │   1 probe（内核指纹 / trace 通道）            │
-│   2 抓/解 KASLR slide                         │
-│   3 t98260_plant：UAF → 假 cred → rootd       │
-│   4 t98260_su → ksud late-load（回退 insmod） │
-│   5 反 root 守卫 + ksud 安装                  │
+│   2 t98260_plant --auto：UAF / 自推 slide →   │
+│     假 cred → rootd                           │
+│   3 PLANT_OK → 后台守卫等 su 就绪停           │
+│     riskdetect；t98260_su → ksud late-load    │
+│     （失败 → prep_patch + insmod）            │
+│   4 等 KSU/su → ksud install / 清 rootd       │
+│   5 可选 SUSFS → 拉起管理器（late-load 已     │
+│     拉起则跳过）                              │
 └───────────────┬───────────────────────────────┘
                 ▼
 ┌────────────────────────────────┐
 │ 内核：ksu-base*.ko (LKM)       │
 │  - su / 管理器加冕             │
-│  - 模块参数 allow_shell=1      │
+│  - allow_shell=1（98260 的     │
+│    late-load 传 --allow-shell）│
+│  - 可选 susfs_guard_lkm.ko     │
 └────────────────────────────────┘
 ```
 
@@ -83,10 +94,16 @@
 - **泄漏与回收**：2048 个定时器，ftrace raw 管道逐字节扫描拿到 `k_itimer` 地址；`mm_page_alloc/free` 与 PFN 校验定位被释放的 order-1 slab 页，再用 8K AF_UNIX skb 回收。
 - **写入与提权**：伪造 `rb_node` 瓦片，借 `rb_erase` 完成零写/指针写；先以同一原语把 `selinux_state - 7` 写零进入 Permissive，再把假 cred 装进 `task->cred`。
 - **rootd 与交接**：假 cred 子进程在 `/data/local/tmp/t98260-root.sock` 提供 rootd，`t98260_su` 以 root 执行 `ksud late-load --kmi android17-6.18`；失败时用 `prep_patch` 按当次 slide 打补丁后 `insmod`。
+- **slide 自推**：从 2048 条 `do_timer_create+0xb8` 的 `kmem_cache_alloc` 记录取众数 call_site，直接得到 KASLR slide，快路径不再单独跑 `take_slide.sh` + `prep_solve`。
+- **回收**：4096 个 socketpair 各持一个 8K skb（约 32 MB）抢 order-1 页；`mm_page_free` 最多等 1.2 s，每 400 ms 在 victim CPU（CPU1）上 churn 一轮 4096 个定时器（v1.24：churn 从 CPU0 改到 timer 实际创建/释放的 CPU，超时直接放弃该 victim 换新，不再空等 4 s）；每次触发器用完立即关闭 `rss_stat`，避免 rss 记录洪水把回收扫描拖到 20 秒级。
+- **cred**：`rb_node.parent_color = node 自身`（`RB_EMPTY_NODE`，保证 cleanup 只摘链一次），指针写把 `task->cred` 指向页内假 cred；`rb_erase` 的第二次写落在 `node+0x08`（uid/gid），用一次 tile 零写补齐；假 cred 子进程内 fork+exec 自检 `Uid=0` 且 `CapEff=0x1ffffffffff` 通过后才起 rootd。
+- **管理器拉起**：SukiSU 的 Launcher Activity 是混淆名，`am start -p` 解析不到、`monkey -p` 只起进程不保证置前；脚本改为 `cmd package resolve-activity` 取组件后 `am start -n`，App 在脚本结束且模块已加载时再用 `getLaunchIntentForPackage` 从前景兜底拉起。
+- **实测（2026-10-29，PYB110 干净 boot）**：`t98260_plant --auto` 到 `ROOTD_READY` **1.75 s**（SELinux 1 次命中 492 ms、cred 585 ms、+8 补写 560 ms）；`run98260.sh` 全流程（probe → plant → late-load → ksud install → 管理器）**3.16 s**。用户 App 内实跑（SukiSU，v1.15）全流程 **<5 s**（用户口径，2026-10-29）；v1.16 把 plant 日志改为 `tee` 实时流式；v1.17 修复管理器自动拉起；v1.18 反 root 改为停 `riskdetect` HAL（不 disable/kill exsystemservice）；v1.19 free 等待 4 s→8 s；v1.20 运行时日志全英文；v1.21 改回 4 s 并加 slab churn（8 s 等待对“页未回 buddy”的 FREED=0 只会更慢）；v1.22 的 98260 部署去掉 `take_slide.sh`/`prep_solve`/`forker`（64560 仍用，98260 的 `SLIDE_MISSING` 兜底改为直接 `PATCH_FAIL`）。v1.21 用户干净 boot 复测：plant→rootd **2.66 s**（SELinux 786 ms、task 104 ms、cred 第一次 512 ms spray miss、第二次 712 ms 命中、+8 509 ms），两次 cred 均 `RECLAIM_FREED=1`、churn 未触发；`riskdetect=stopped` 保持 3 h+、KSU Live。v1.23 把官方 KernelSU 升到 `main`/UAPI6（LKM 按 `db6263d3` 自编 382,232 B、ksud 同源 6,618,008 B、管理器 32707 同签名可直接 `adb install -r` 覆盖）；其余三家管理器不变。v1.26 修复管理器被打开两次（`ksud late-load` 结束时已重启管理器，脚本在 late-load 成功时不再 `force-stop`+`am start`，只有 insmod 回退/已加载路径才由脚本拉起）；v1.24 改 98260 回收策略：`mm_page_free` 等待 4 s→1.2 s、churn 从 CPU0 改到 victim CPU1、trace 扫描命中即停，卡住的 slab 直接放弃换新 victim。
 
 **两个分支共用**
 
-- **反 root 守卫**：ColorOS 的 `com.oplus.exsystemservice` 会在检测到提权后弹窗并在 15 秒后 `reboot("Malicious app try to root devices")`。可选开关开启时，流程会在拿到 su 后禁用该包并 kill 进程，**5 秒后自动恢复**（禁用过久会导致系统截图不可用）。
+- **截图链路恢复**：两条分支在 `ksud install` 后检查 `com.oplus.exsystemservice` 与 `com.oplus.screenshot`，发现被禁用（旧版逻辑或手动误禁）就 `pm enable --user 0` 恢复，日志 `SCREENSHOT_STACK_OK/ENABLED/ABSENT/SKIP`；已启用时只做检查，不影响截图与反 root 守卫。
+- **反 root 守卫**：ColorOS 的 `com.oplus.exsystemservice` 会在检测到提权后弹窗并在 15 秒后 `reboot("Malicious app try to root devices")`。可选开关开启时，64560 在 `[6/6]`、98260 在 `PLANT_OK` 后立刻后台启动守卫；守卫轮询到 KSU su 可用就 `stop riskdetect`（上游 AIDL HAL `vendor.oplus.hardware.riskdetect.IRiskDetect/default`），**不自动恢复，重启后恢复**；不再 disable/kill exsystemservice，因此不会拆掉同 host 里的 `OplusScreenshotManagerService`，截图链路不受影响。
 
 ## 目录结构
 
@@ -95,7 +112,7 @@ OnePlus16-Jailbreak/
 ├── app/                         Android App（Gradle 工程根）
 │   ├── app/                     :app 模块（Kotlin/Compose/Miuix/Shizuku）
 │   │   ├── src/main/java/com/pyb110/onekey/MainActivity.kt  单页设置与流程调度
-│   │   ├── src/main/assets/pyb110/  内置设备端工具与四家 ko/ksud（约 48 MB）
+│   │   ├── src/main/assets/pyb110/  内置设备端工具与五家 ko/ksud（约 61 MB）
 │   │   ├── src/main/res/        自绘图标与资源
 │   │   ├── build.gradle.kts     签名配置 + R8
 │   │   └── proguard-rules.pro
@@ -109,14 +126,11 @@ OnePlus16-Jailbreak/
 │   ├── src/prep_solve.c         设备端 slide 求解
 │   ├── src/prep_patch.c         ko 符号补丁（UNDEF → link+slide）
 │   └── build-98260.sh           用 NDK 静态编译 t98260_plant / t98260_su
-├── remote/                      设备端脚本与符号表副本（App 运行时不下载）
-│   ├── scripts/run.sh           64560 主流程
-│   ├── scripts/take_slide.sh    抓 slide
-│   └── syms-6.18.21.txt         该内核的符号表
 ├── lkm/                         LKM 构建脚本与 SUSFS 源码
 │   ├── build-kernelsu.sh        官方 KernelSU
 │   ├── build-next.sh            KernelSU Next
 │   ├── build-bakasu.sh          BakaSU（原 ReSukiSU）
+│   ├── build-finasu.sh          FinaSU
 │   ├── build-sukisu.sh          SukiSU Ultra
 │   ├── build-susfs.sh           SUSFS guard LKM
 │   ├── susfs4ksu-lkm/           SUSFS LKM 源码（上游 28b2e85，GPL-2.0）
@@ -159,7 +173,7 @@ App 把全部设备端资产打包在 `app/app/src/main/assets/pyb110/`（约 48
 - 98260：`t98260_plant`、`t98260_su`、`prep_solve`、`prep_patch`、`forker`、`run98260.sh`；
 - 共用：`syms.txt`、`take_slide.sh`，以及所选管理器的 `ksu-base*.ko` + `ksud_*`。
 
-更新素材时直接替换 `assets/pyb110/` 下的文件并重新打包 APK。`remote/` 保留 64560 主流程、抓 slide 脚本与符号表副本，便于不装 App 时手工调试；与 `assets/pyb110/` 的对应文件需手动保持一致。
+更新素材时直接替换 `assets/pyb110/` 下的文件并重新打包 APK；不装 App 手工调试时也用同一目录下的脚本与符号表。
 
 ### LKM
 
@@ -173,6 +187,9 @@ bash lkm/build-kernelsu.sh        # 在容器内运行
 
 # KernelSU Next
 bash lkm/build-next.sh
+
+# FinaSU
+bash lkm/build-finasu.sh
 
 # BakaSU（原 ReSukiSU，需 tracepoint hook + 多管理器）
 bash lkm/build-bakasu.sh
@@ -201,15 +218,15 @@ $CC -O2 -static -o prep_patch exploit/src/prep_patch.c
 $CC -O2 -static -o t64560_w2 exploit/src/t64560_w2.c
 ```
 
-`run.sh` / `run98260.sh` 从 `/data/local/tmp/pyb110-<boot_id>-<epoch>/` 运行，读取 `PYB110_MANAGER`（`kernelsu` / `next` / `bakasu` / `sukisu`）、`PYB110_DISABLE_ANTIROOT`（`1` / `0`）、`PYB110_UNLOAD_GUARD`（`1` / `0`）、`PYB110_SUSFS`（`1` / `0`）与 `PYB110_LATE_LOAD`（98260，默认 `1`）选择行为。
+`run.sh` / `run98260.sh` 从 `/data/local/tmp/pyb110-<boot_id>-<epoch>/` 运行，读取 `PYB110_MANAGER`（`kernelsu` / `next` / `bakasu` / `sukisu`）、`PYB110_DISABLE_ANTIROOT`（`1` / `0`）、`PYB110_UNLOAD_GUARD`（`1` / `0`）与 `PYB110_SUSFS`（`1` / `0`）选择行为；98260 总是先试 `ksud late-load`，失败才回退到打补丁后的 `insmod`。
 
 ## 使用
 
 1. 用无线调试启动 Shizuku，并授权本 App。
-2. 在「ROOT管理器」下拉选择 KernelSU / KernelSU Next / BakaSU / SukiSU Ultra，在「漏洞利用方式」下拉选择 CVE-2026-64560 或 CVE-2026-98260。切换管理器后需重启再越狱（已加载模块不能热替换）。
-3. 98260 建议在干净开机后执行：`t98260_plant --probe` 会先核对内核 release 与 trace 通道；plant 命中通常 10–120 秒（预算 240 秒），期间可能概率性重启。
+2. 在「ROOT管理器」下拉选择 KernelSU / FinaSU / KernelSU Next / BakaSU / SukiSU Ultra，在「漏洞利用方式」下拉选择 CVE-2026-64560 或 CVE-2026-98260。切换管理器后需重启再越狱（已加载模块不能热替换）。
+3. 98260 建议在干净开机后执行：`t98260_plant --probe` 会先核对内核 release 与 trace 通道；plant 通常 2 秒内到 rootd（SELinux 首次命中受 spray 影响，预算 240 秒）。
 4. 四个流程开关：
-   - 「越狱后禁用安全弹窗」：拿到 su 后禁用 `com.oplus.exsystemservice` 并 kill 进程，5 秒后自动恢复；如截图等系统功能异常，软重启（重启 zygote/SystemUI）。
+   - 「越狱后禁用安全弹窗」：拿到 su 后停止 `riskdetect` HAL（`stop riskdetect`），不自动恢复、重启后恢复；不触碰 `com.oplus.exsystemservice`/截图服务。
    - 「越狱后软重启」：流程跑完且模块确认加载后，以 `su` 执行 `setprop ctl.restart zygote`；失败不会影响已完成的越狱。
    - 「越狱后卸载内核安全防护」：拿到 su 后 `rmmod oplus_secure_guard_new`，日志给出 `UNLOAD_GUARD_GONE` 或 `UNLOAD_GUARD_STILL_LOADED`；模块被引用时不会强制卸载，重启后会重新加载。
    - 「SUSFS 支持」：开启后越狱成功时自动把内置的 `susfs_guard_lkm.ko` 部署到设备，并以 `ksud insmod`（回退 `insmod`）加载；日志给出 `SUSFS_LOADED` / `SUSFS_LOAD_FAIL`，加载失败不影响已完成的越狱。默认关闭，关闭时该 ko 不会随流程部署。
@@ -241,6 +258,7 @@ $CC -O2 -static -o t64560_w2 exploit/src/t64560_w2.c
   [AzirX1337/CVE-2026-98260-OnePlus16-PYB110-Jailbreak](https://github.com/AzirX1337/CVE-2026-98260-OnePlus16-PYB110-Jailbreak)（MIT，许可全文见 `third_party/cve-2026-98260-LICENSES/AzirX1337-MIT.txt`）。
 - 官方 KernelSU：[tiann/KernelSU](https://github.com/tiann/KernelSU)（GPL-2.0）。
 - KernelSU Next：[rifsxd/KernelSU-Next](https://github.com/rifsxd/KernelSU-Next)（GPL-2.0）。
+- FinaSU：[LyraVoid/FinaSU](https://github.com/LyraVoid/FinaSU)（GPL-2.0）。
 - BakaSU（原 ReSukiSU）：[Baka-SU/BakaSU](https://github.com/Baka-SU/BakaSU)（GPL-2.0）。
 - SukiSU Ultra：[SukiSU-Ultra/SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)（GPL-3.0）。
 - SUSFS guard LKM：[inforcqb/susfs4ksu-lkm](https://github.com/inforcqb/susfs4ksu-lkm)（GPL-2.0；源码 vendored 在 `lkm/susfs4ksu-lkm`，BTI 兼容修改见 `MODIFICATIONS.md`）。
@@ -249,6 +267,6 @@ $CC -O2 -static -o t64560_w2 exploit/src/t64560_w2.c
 
 ## 校验和
 
-- release APK：`app/app/build/outputs/apk/release/app-release.apk` / 30,789,270 B / md5 `590cde014beaf91c82b3a0c1372119f3`（本地构建产物，不入库）。
-- KernelSU LKM（6.18.21）：349,224 B；Next：350,000 B；BakaSU：435,616 B；SukiSU：544,848 B（strip 后）。
+- release APK：`app/app/build/outputs/apk/release/app-release.apk` / 30,792,382 B / md5 `77aff6105fce3b5f9e1296132be406ac` / sha256 `f510ebde38778bd614c163a58eb13bb3509a3b39cecd12b3a13a10dd3e752b72`（本地构建产物，不入库）。
+- KernelSU LKM（6.18.21）：382,232 B；Next：489,264 B；BakaSU：435,616 B；SukiSU：545,040 B；FinaSU：496,744 B（strip 后）。
 - SUSFS guard LKM（6.18.21，内置 assets）：3,456,440 B / sha256 `4c944d3f84b386bb03c0aadb4527c4ec74c12fe511c5511884073160c3a88304`（未 strip）。

