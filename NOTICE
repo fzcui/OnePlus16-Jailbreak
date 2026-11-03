@@ -1,11 +1,16 @@
 Third-party components
 ======================
 
+Note: ksud is not bundled. The App executes the ksud payload
+(manager APK's lib/arm64/libksud.so or the randomized equivalent) in place.
+The manager APK itself is installed by the user.
+
+
 1. CVE-2026-64560 public tooling
    Source: https://github.com/Feng1586/CVE-2026-64560-public
    License: Apache-2.0
-   Used: t64560_v36 / t64560_loader2 / forker binaries (packed in App assets),
-         selected upstream scripts under third_party/.
+   Used: historical source/flow reference only. The 64560 chain and its
+         binaries are no longer packed or deployed by the App.
 
 2. KernelSU
    Source: https://github.com/tiann/KernelSU
@@ -36,8 +41,8 @@ Third-party components
    Source: https://github.com/AzirX1337/CVE-2026-98260-OnePlus16-PYB110-Jailbreak
    License: MIT
    Used: background and flow reference for the 98260 branch. The bundled
-         t98260_plant / t98260_su binaries are built from exploit/src in
-         this repository. License text:
+         t98260 single-entry binary is built from exploit/rust-t98260 plus
+         the C plant in exploit/src in this repository. License text:
          third_party/cve-2026-98260-LICENSES/AzirX1337-MIT.txt
 
 8. Shizuku API
@@ -66,3 +71,26 @@ The application icon is drawn by this project.
          assets/pyb110/t61269 for the experimental 6.12.69-ex option.
          Redistribution is NOT cleared by the upstream author; treat this
          binary as a local research build until a license/permission exists.
+
+12. Stellar (Shizuku fork) / Stellar API SDK
+   Source: https://github.com/roro2239/Stellar (manager),
+           https://github.com/roro2239/Stellar-API (SDK, JitPack com.github.roro2239:Stellar-API:1.0.3)
+   License: MPL-2.0 (Stellar modifications) / Apache-2.0 (Shizuku base code).
+   Used: privileged backend preferred at runtime (StellarProvider + roro.stellar API);
+         Shizuku (entry 8) remains the fallback backend.
+
+13. COUI (ColorOS UI components for Compose Multiplatform)
+   Source: https://github.com/suqi8/coui
+   License: Apache-2.0 (based on Miuix, entry 6, also Apache-2.0)
+   Used: UI component library since v1.75
+         (io.github.suqi8.coui.kmp:coui-ui/icons/preference-android:1.1.0).
+
+14. Hybrid Mount (VFS provider LKM)
+   Source: https://github.com/Hybrid-Mount/meta-hybrid_mount (VFS module,
+           fork of https://github.com/maxsteeel/nomount)
+   License: GPL-2.0-only (full text: lkm/hybridmount/LICENSE)
+   Used: vendored VFS provider kernel module source under lkm/hybridmount/,
+         built for GKI 6.18.21 by lkm/build-hybridmount.sh and bundled as
+         assets/pyb110/hybridmount-6.18.21.ko (loaded only when the optional
+         "VFS 支持" switch is on). Import baseline and divergences are listed
+         in lkm/hybridmount/PROVENANCE.
