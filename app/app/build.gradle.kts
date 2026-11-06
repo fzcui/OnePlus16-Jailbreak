@@ -9,6 +9,7 @@ val keystoreProps = Properties().apply {
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.mikepenz.aboutlibraries.plugin")
 }
 
 android {
@@ -23,8 +24,11 @@ android {
         applicationId = "com.pyb110.onekey"
         minSdk = 33
         targetSdk = 37
-        versionCode = 81
-        versionName = "1.91"
+        versionCode = 90
+        versionName = "2.0"
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
     buildFeatures {
         compose = true
@@ -52,8 +56,27 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols.add("**/libt98260.so")
+            keepDebugSymbols.add("**/libksud_universal.so")
+            keepDebugSymbols.add("**/libt61269.so")
+            keepDebugSymbols.add("**/libv2505a.so")
+            keepDebugSymbols.add("**/libsusfs_guard_lkm.so")
+            keepDebugSymbols.add("**/libsusfs_guard_lkm_612.so")
+            keepDebugSymbols.add("**/libhybridmount.so")
+        }
+    }
 }
 
+
+aboutLibraries {
+    library {
+        duplicationMode = com.mikepenz.aboutlibraries.plugin.DuplicateMode.MERGE
+        duplicationRule = com.mikepenz.aboutlibraries.plugin.DuplicateRule.SIMPLE
+    }
+}
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
@@ -67,6 +90,7 @@ dependencies {
     implementation("io.github.suqi8.coui.kmp:coui-icons-android:1.1.0")
     implementation("io.github.suqi8.coui.kmp:coui-preference-android:1.1.0")
     implementation("io.github.suqi8.coui.kmp:coui-blur-android:1.1.0")
+    implementation("com.mikepenz:aboutlibraries-core:15.2.0")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:aidl:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
